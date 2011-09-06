@@ -1,0 +1,14 @@
+table(id="example")
+	thead
+		tr
+			- each c in columns
+				th= c
+	tbody
+		- each row in rows
+			tr
+				- each item in row
+					td(style="width:160px;")= item
+	script(type='text/javascript')
+		$(document).ready(function() {
+			$('#example').dataTable( {"bJQueryUI": true,	"sPaginationType": "full_numbers"} );
+		} );

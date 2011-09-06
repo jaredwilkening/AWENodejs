@@ -1,0 +1,11 @@
+{   "_about"  : "AWE - node json configuration file",
+	"verbose" : false,
+	"port"    : 8888,
+	"version" : "prod",
+	"prod"    : {
+		"jobsdir"   : "",
+		"uploads"   : "",
+		"dbconnect" : "",
+		"pgconnect" : "host='' dbname='' user=''"
+		}
+}
