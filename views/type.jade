@@ -1,0 +1,26 @@
+h2 id
+#{id} 
+br
+br
+h2 type
+#{type} 
+br
+br	
+h2 template 
+pre(class="prettyprint", style="border: 1px solid black;")
+	#{template}
+br
+br
+h2 checker
+pre(class="prettyprint", style="border: 1px solid black;")
+	#{checker}
+br
+br
+h2 partionable
+#{partionable} 
+br
+br		
+script
+	$(document).ready(function() {
+		prettyPrint()
+	})

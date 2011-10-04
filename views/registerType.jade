@@ -1,0 +1,11 @@
+form(method="POST", enctype="multipart/form-data", action="/type/register")
+	h2 type
+	input(name="type", type="text")
+	h2 template
+	input(name="template", type="file")
+	h2 checker
+	input(name="checker", type="file")
+	h2 partionable
+	input(name="partionable", type="checkbox", value="1")
+	br
+	input(name="submit", type="submit", value="Upload")

@@ -1,4 +1,13 @@
 #!/usr/bin/env python
+
+########################################################################
+#                    AWE - Another Workflow Engine
+# Authors:  
+#   Jared Wilkening (jared@mcs.anl.gov)
+#   Narayan Desai   (desai@mcs.anl.gov)
+#   Folker Meyer    (folker@anl.gov)
+########################################################################
+
 import json, psycopg2, sys, os, shutil, subprocess as sub
 
 from Bio import SeqIO

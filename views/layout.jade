@@ -8,10 +8,13 @@ html(lang="en")
 		link(href='/css/jquery-ui-1.8.4.custom.css', rel='stylesheet')
 		script(src="/js/jquery.js")	
 		script(src="/js/jquery.dataTables.js")
+		link(href='/css/prettify.css', rel='stylesheet')
+		script(src="/js/prettify.js")	
 	body
 		#container
 			header
-				img(src='/images/awe_logo.png', style='width:600px;') 
+				a(href='/')
+					img(src='/images/awe_logo.png', style='width:600px; margin-top: 25px;')
+
 		#main!= body
 		footer
-	

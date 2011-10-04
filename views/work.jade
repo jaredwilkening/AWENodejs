@@ -1,0 +1,37 @@
+h2 id
+#{id} 
+br
+br	
+h2 workunit 
+pre(class="prettyprint", style="border: 1px solid black;")
+	#{workunit}
+br
+br
+h2 type
+#{type}
+br
+br
+h2 priority
+#{priority}
+br
+br
+h2 creation_time
+#{creation_time} 
+br
+br
+h2 checkout_status
+#{checkout_status} 
+br
+br
+h2 checkout_host
+#{checkout_host} 
+br
+br
+h2 checkout_time
+#{checkout_time} 
+br
+br		
+script
+	$(document).ready(function() {
+		prettyPrint()
+	})
