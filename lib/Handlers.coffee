@@ -1,41 +1,46 @@
-########################################################################
-#                    AWE - Another Workflow Engine
+##########################################################################
+#                      AWE - Another Workflow Engine
 # Authors:  
-#   Jared Wilkening (jared@mcs.anl.gov)
-#   Narayan Desai   (desai@mcs.anl.gov)
-#   Folker Meyer    (folker@anl.gov)
-########################################################################
+#     Jared Wilkening (jared@mcs.anl.gov)
+#     Narayan Desai   (desai@mcs.anl.gov)
+#     Folker Meyer    (folker@anl.gov)
+##########################################################################
 
 formidable = require 'formidable'
-sys        = require 'sys'
 fs         = require 'fs' 
 http       = require 'http' 
 util       = require 'util'
 exec       = require('child_process').exec
-aweRequest = require('./aweRequest.js');
 
-########################################################################
+##########################################################################
 # Handler class
-########################################################################
+##########################################################################
 
-class exports.Handler
-	constructor: (server)->
+class Handler
+	constructor: (server, tasks)->
 		@server = server
-
+		@tasks = tasks
+		@type = new Type server, tasks
+		@work = new Work server, tasks
+		
 	status: (req, res)->
-		@server.query "select * from types", [], (results)->
-			columns = ['_id', 'type', 'template', 'checker', 'owner', 'partionable']
-			rows = []
-			for r in (results.rows or [])
-				tmp = []
-				for c in columns
-					tmp.push r[c]
-				rows.push tmp
-			return res.render 'index', {locals: { pageTitle: "AWE - Types", columns: columns, rows: rows}}
+		@server.query "select count(_id), status from workunits group by status", [], (results)=>
+			work=
+				'checked_out' : 0
+				'ready'       : 0
+				'pending'     : 0
+			workunits = 0
+			for r in results.rows
+				workunits+= r.count
+				work[r.status] = r.count				
+			@server.query "select count(_id) from tasks", [], (results)=>
+				tasks = results.rows[0].count
+				return res.render 'index', {locals: { pageTitle: "AWE", workunits: workunits, work: work, tasks: tasks}}
 
-class exports.Type
-	constructor: (server)->
+class Type
+	constructor: (server, tasks)->
 		@server = server
+		@tasks = tasks
 	
 	status: (req, res)->
 		@server.query "select * from types", [], (results)->
@@ -46,7 +51,7 @@ class exports.Type
 				for c in columns
 					tmp.push r[c]
 				rows.push tmp
-			return res.render 'index', {locals: { pageTitle: "AWE - Types", columns: columns, rows: rows}}
+			return res.render 'table', {locals: { pageTitle: "AWE - Types", columns: columns, rows: rows}}
 
 	register: (req, res)->
 		return res.render 'registerType', {locals: { pageTitle: "AWE - Register Type"}} if req.method == "GET"
@@ -136,36 +141,41 @@ class exports.Type
 				return clientRes res, {message: "Successfully deleted #{id}"} if not isBrowser req
 				return res.render 'index', {locals: { pageTitle: "AWE - status", message: "Successfully deleted #{id}"}} if isBrowser req
 			
-class exports.Work
-	constructor: (server)->
+class Work
+	constructor: (server, tasks)->
 		@server = server
+		@tasks = tasks
 		
-	status: (req, res)->
+	status: (req, res)->		
 		@server.query "select * from workunits", [], (data)->
-			columns = ['_id', 'type', 'priority','creation_time', 'checkout_status', 'checkout_host', 'release_time', 'done']
+			columns = ['_id', 'type', 'status', 'priority','creation_time', 'checkout_host', 'release_time', 'done']
 			rows = []
-			return res.render 'index', {locals: { pageTitle: "AWE - status", columns: columns, rows: rows}} if data.rows.length is 0
+			return res.render 'table', {locals: { pageTitle: "AWE - status", columns: columns, rows: rows}} if data.rows.length is 0
 			for r in data.rows
 				tmp = []
 				for c in columns
 					tmp.push r[c]
 				rows.push tmp
-			res.render 'index', {locals: { pageTitle: "AWE - status", columns: columns, rows: rows}}
+			res.render 'table', {locals: { pageTitle: "AWE - status", columns: columns, rows: rows}}
 	
 	register: (req, res)->
+		###	
+		multipart/form
+			type = workunit type
+			i1 .. iN = file or url to shock
+			input1 .. inputN = same as above 
+		###
 		form = new formidable.IncomingForm()
-		[fields, files] = [{},{}]
+		fields = {}
+		form.on "error", (err)->
+			return errorRes res, req, err, "error: invalid multipart/form data"
 		form.on "field", (field, value)->
-			if field in ["input"]
-				fields[field] = [] if not fields[field]?
-				fields[field].push value 
-			else
-				fields[field]=value
+			fields[field] = value 
 		form.on "file", (field, file)->
-			files[field] = [] if not files[field]?
-			files[field].push file
+			fields[field] = file
 		form.on "end", ()=>
-			return errorRes res, req, null, "error: missing type" if not fields.type?
+			files = {}
+			return errorRes res, req, null, "error: type required for registation of work" if not fields.type?
 			@server.query "select template from types where type=$1", [fields.type], (results, err)=>
 				console.log err if err?
 				return errorRes res, req, null, "error: type #{fields.type} does not exist" if results.rows.length is 0
@@ -173,65 +183,39 @@ class exports.Work
 					type = JSON.parse results.rows[0].template
 				catch err
 					return errorRes res, req, err, "error: internal server error"
-				return errorRes res, req, null, "error: not files provided, please refer to the awe api doc" if not files.input?
-				return errorRes res, req, null, "error: type #{type.type} requires #{Object.keys(type.inputs).length} input(s). #{files.input.length} input(s) recieved" if type.inputs? and Object.keys(type.inputs).length != files.input.length
-				options=
-					'host' : @server.shockUrl
-					'port' : @server.shockPort
-					'method' : 'POST'
-					'path' : '/register'
-					'headers' : 
-						'User-Agent'     : 'Node.js (AWE)'
-						'Content-Type'   : "multipart/form-data"
-						'Connection'     : 'keep-alive'
-						'Transfer-Encoding' : 'chunked'
-					
-				reqFiles = []		
-				for i in [0..(files.input.length-1)]
-					reqFiles.push [files.input[i].name, files.input[i].path]		
-				request = new aweRequest.Request(options, [], reqFiles)
-				request.send (err, responseBody)=>
+				inputs = {}
+				for name, value of fields
+					match = name.match /^input(\d+)$/
+					match = name.match /^i(\d+)$/ if not match?
+					inputs["i#{match[1]}"] = value if match?							
+				return errorRes res, req, null, "error: type #{type.type} requires #{Object.keys(type.inputs).length} input(s). #{Object.keys(inputs).length} input(s) recieved" if type.inputs? and Object.keys(type.inputs).length != Object.keys(inputs).length
+				workUnitObj = 
+					"about"      : "AWE workunit"
+					"workType"   : fields.workType
+					"cmd"        : type.cmd
+					"options"    : type.options or ""
+					"args"       : type.args or ""
+					"inputs"     : type.inputs
+					"outputs"    : type.outputs									
+				@server.query "insert into workunits (workunit, type, status) values ($1, $2, 'pending') returning _id", [JSON.stringify(workUnitObj), type.type], (results, err)=>				
 					console.log err if err?
-					console.log responseBody
-					try
-						aweRes = JSON.parse(responseBody)
-					catch error
-						return errorRes res, req, error, "Something bad happened"
-					inputs = {}
-					for i in [0..(files.input.length-1)]				
-						inputs["i#{i+1}"] =
-							"fileName"     : files.input[i].name
-							"url"          : "#{@server.shockUrl}#{if @server.shockPort? then ":#{@server.shockPort}" else "" }/get/#{aweRes.response.ids[i]}"
-							"size"         : files.input[i].size	
-							#"checksum"     : ""
-							#"checksumType" : "md5"
-						
-					outputs = {}
-					for o of type.outputs
-						outputs[o] =
-							"fileName" : type.outputs[o].fileName
-							"url"      : ""
-						if type.outputs[o].pipe?	
-							outputs[o]["pipe"] = type.outputs[o].pipe 
-
-					workUnitObj = 
-						"about"      : "AWE workunit"
-						"workType"   : fields.workType
-						"cmd"        : type.cmd
-						"options"    : type.options or ""
-						"args"       : type.args or ""
-						"inputs"     : inputs
-						"outputs"    : outputs
-									
-					@server.query "insert into workunits (workunit, type) values ($1, $2) returning _id", [JSON.stringify(workUnitObj), type.type], (results, err)->
-						if results.rowCount? and results.rowCount == 1
-							return res.redirect "/work/#{results.rows[0]._id}"
-						else
-							return errorRes res, req, null, "error: unable to create workunit"
+					if results.rows? and results.rows[0]?
+						id = results.rows[0]._id
+						for o, value of type.outputs
+							@tasks.queue "register_output", {"workunit" : id, "output" : o}
+						for i, value of inputs
+							if typeof value is "string"
+								@tasks.queue "check_input", {"workunit" : id, "input" : i, "url" : value}
+							else
+								@tasks.queue "register_input", {"workunit" : id, "input" : i, "file" : value}
+						@tasks.queue "check_workunit", {"workunit" : id}, 30		
+						return res.redirect "/work/#{id}"
+					else
+						return errorRes res, req, null, "error: unable to create workunit"
 		form.parse req
 
 	checkout: (req, res)->
-		@server.query "begin work; lock table workunits in access exclusive mode; update workunits set (checkout_status, checkout_host, checkout_time, release_time) = ('checked_out', 'localhost', now(), now() + interval '1 hour') where _id in (select _id from workunits where (checkout_status not in ('checked_out', 'pending') or checkout_status is null) and not done order by priority desc, creation_time asc limit 1) returning _id; commit work;", [], (results, err)=>
+		@server.query "begin work; lock table workunits in access exclusive mode; update workunits set (status, checkout_host, checkout_time, release_time) = ('checked_out', 'localhost', now(), now() + interval '1 hour') where _id in (select _id from workunits where (status not in ('checked_out', 'pending') or status is null) and not done order by priority desc, creation_time asc limit 1) returning _id; commit work;", [], (results, err)=>
 			return errorRes res, req, null, "error: no work found" if results? and results.rows.length is 0
 			return res.redirect "/work/#{results.rows[0]._id}" if results? and results.rows[0]._id?
 
@@ -245,9 +229,9 @@ class exports.Work
 				id: id
 				type: work.type
 				workunit: workunit
+				status: work.status
 				priority: work.priority
 				creation_time: work.creation_time
-				checkout_status: work.checkout_status
 				checkout_host: work.checkout_host
 				checkout_time: work.checkout_time
 				release_time: work.release_time
@@ -260,26 +244,29 @@ class exports.Work
 		id = req.params.id		
 		@server.query "update workunits set (release_time) = (now() + interval '1 hour') where _id=$1", [id], (results, err)=>
 			return errorRes res, req, null, "error: no work found" if not results? or results.rowCount is not 1
-			return clientRes res, {message: "Success"} if not isBrowser req
-			return res.render 'index', {locals: {pageTitle: "AWE - Release", message: "Success"} }
+			return this.get req, res
 		
 	done: (req, res)->
 		id = req.params.id		
-		@server.query "update workunits set (checkout_status, checkout_time, release_time, done) = ('done', null, null, true) where _id=$1", [id], (results, err)=>
+		@server.query "update workunits set (status, checkout_time, release_time, done) = ('done', null, null, true) where _id=$1", [id], (results, err)=>
 			return errorRes res, req, null, "error: no work found" if not results? or results.rowCount is not 1
-			return clientRes res, {message: "Success"} if not isBrowser req
-			return res.render 'index', {locals: {pageTitle: "AWE - Release", message: "Success"} }					
+			return this.get req, res					
 
 	release: (req, res)->	
 		id = req.params.id		
-		@server.query "update workunits set (checkout_status, checkout_host, checkout_time, release_time) = ('ready', '', null, null) where _id=$1", [id], (results, err)=>
+		@server.query "update workunits set (status, checkout_host, checkout_time, release_time) = ('ready', '', null, null) where _id=$1", [id], (results, err)=>
 			return errorRes res, req, null, "error: no work found" if not results? or results.rowCount is not 1
-			return clientRes res, {message: "Success"} if not isBrowser req
-			return res.render 'index', {locals: {pageTitle: "AWE - Release", message: "Success"} }
+			return this.get req, res
+
+##########################################################################
+# exports
+##########################################################################
+
+module.exports = Handler
 			
-########################################################################
+##########################################################################
 # helper functions
-########################################################################
+##########################################################################
 isBrowser = (req)->
 	return /(Mozilla|AppleWebKit|Chrome|Gecko|Safari)/.test req.headers['user-agent']
 
@@ -298,45 +285,3 @@ errorRes = (res, req, err, message)->
 		console.log err 
 	return res.render 'index', {locals: { pageTitle: "Shock - main", message: message }} if isBrowser req
 	return clientRes res, { "message" : message, "status" : "Error" } if not isBrowser req
-
-getShockInfo = (server, shock_key, callback)->
-	options = 'host' : "#{shock_host}", 'port' : shock_port, 'path' : "/info/#{shock_key}", 'method' : "GET"
-	req = http.request options, (res)->
-		if res.statusCode is not 200
-			console.log "statusCode: #{res.statusCode}"
-			console.log "headers: #{JSON.stringify res.headers}"
-		else
-			res.setEncoding 'utf8'
-			body_tmp = ''
-			res.on 'data', (chunk)->
-				body_tmp = "#{body_tmp}#{chunk}"
-			res.on 'end', ()->
-				body = JSON.parse body_tmp
-				if body.response.info?
-					callback null, body.response.info if typeof callback is 'function'				
-				else 
-					callback 'Object key not found', null if typeof callback is 'function'				
-	req.on 'error', (err)->
-		callback err.message, null if typeof callback is 'function'		
-	req.end()
-
-registerJob = (server, shock_key, name, type, parts, callback)->
-	server.query "insert into jobs (job_name, input_key, type, total, avail) values ($1, $2, $3, $4, $5) returning *", [name, shock_key, type, parts, parts], (data)->
-		if data.rows.length > 0 and data.rows[0].job_name?
-			for p in [1..parts]
-				server.query "insert into workunits (job_id, part) values ($1, $2)", [data.rows[0]._id, p]
-			callback null if typeof callback is 'function'
-		else
-			callback "Error creating job" if typeof callback is 'function'
-
-finishJob = (server, row)->
-	return console.log "Job #{row.job_name} done. No done_file." if verbose? and not row.done_file
-	console.log "Job #{row.job_name} done." if verbose?
-
-	server.query "delete from jobs where _id = $1", [row._id], (data)->
-		console.log "Job #{row.job_name} removed from DB." if verbose?
-	if row.done_script
-		console.log "Job #{row.job_name} executing done script." if verbose? 
-		exec row.done_script, (error, stdout, stderr)->
-			console.log error if error?
-			console.log stdout if verbose?		
